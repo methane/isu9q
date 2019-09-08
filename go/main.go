@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/pprof"
 	"strconv"
 	"sync"
 	"time"
@@ -376,6 +377,9 @@ func main() {
 		log.Fatalf("failed to connect to DB: %s.", err.Error())
 	}
 	defer dbx.Close()
+	dbx.SetMaxOpenConns(16)
+	dbx.SetMaxIdleConns(16)
+	dbx.SetConnMaxLifetime(time.Minute * 3)
 
 	mux := goji.NewMux()
 
@@ -446,6 +450,7 @@ func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 		return user, http.StatusNotFound, "user not found"
 	}
 	if err != nil {
+		pprof.Lookup("goroutine").WriteTo(os.Stderr, 1)
 		log.Print(err)
 		return user, http.StatusInternalServerError, "db error"
 	}
@@ -546,7 +551,7 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 
 	res := resInitialize{
 		// キャンペーン実施時には還元率の設定を返す。詳しくはマニュアルを参照のこと。
-		Campaign: 0,
+		Campaign: 1,
 		// 実装言語を返す
 		Language: "Go",
 	}
