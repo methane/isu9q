@@ -1109,18 +1109,24 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			sst := shipping.Status
-			if shipping.Status == ShippingsStatusWaitPickup {
-				ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
-					ReserveID: shipping.ReserveID,
-				})
-				if err != nil {
-					log.Print(err)
-					outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
-					tx.Rollback()
-					return
+			/*
+				// fail するようなら再確認する
+				if shipping.Status == ShippingsStatusWaitPickup {
+					ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
+						ReserveID: shipping.ReserveID,
+					})
+					if err != nil {
+						log.Print(err)
+						outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
+						tx.Rollback()
+						return
+					}
+					if shipping.Status != ssr.Status {
+						log.Printf("shipping status = %v , %v", shipping.Status, ssr.Status)
+					}
+					sst = ssr.Status
 				}
-				sst = ssr.Status
-			}
+			*/
 
 			itemDetail.TransactionEvidenceID = transactionEvidence.ID
 			itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
