@@ -83,9 +83,9 @@ type User struct {
 }
 
 type UserSimple struct {
-	ID           int64  `json:"id"`
-	AccountName  string `json:"account_name"`
-	NumSellItems int    `json:"num_sell_items"`
+	ID           int64  `json:"id" db:"id"`
+	AccountName  string `json:"account_name" db:"account_name"`
+	NumSellItems int    `json:"num_sell_items" db:"num_sell_items"`
 }
 
 type Item struct {
@@ -470,6 +470,30 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 	return userSimple, err
 }
 
+func getUserSimpleByIDs(q sqlx.Queryer, userIDs []int64) (userSimples map[int64]UserSimple, err error) {
+	userSimples = make(map[int64]UserSimple)
+	inQuery, inArgs, err := sqlx.In("SELECT id, account_name, num_sell_items FROM `users` WHERE `id` IN (?)", userIDs)
+	log.Printf("inQuery: %s, inArgs: %v", inQuery, inArgs)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := q.Queryx(inQuery, inArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var user UserSimple
+		err = rows.StructScan(&user)
+		if err != nil {
+			return nil, err
+		}
+		log.Printf("user: %v", user)
+		userSimples[user.ID] = user
+	}
+	return userSimples, nil
+}
+
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
 	if cat, ok := mCategories[categoryID]; ok {
 		return cat, nil
@@ -623,10 +647,22 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var sellerIds = make([]int64, 0, len(items))
+	for _, item := range items {
+		sellerIds = append(sellerIds, item.SellerID)
+	}
+	userSimples, err := getUserSimpleByIDs(dbx, sellerIds)
+	if err != nil {
+		log.Printf("err: %v", err)
+		outputErrorMsg(w, http.StatusNotFound, "seller not found")
+		return
+	}
+
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(dbx, item.SellerID)
-		if err != nil {
+		seller, ok := userSimples[item.SellerID]
+		//		seller, err := getUserSimpleByID(dbx, item.SellerID)
+		if !ok { //err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
@@ -750,10 +786,22 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var sellerIds = make([]int64, 0, len(items))
+	for _, item := range items {
+		sellerIds = append(sellerIds, item.SellerID)
+	}
+	userSimples, err := getUserSimpleByIDs(dbx, sellerIds)
+	if err != nil {
+		log.Printf("err: %v", err)
+		outputErrorMsg(w, http.StatusNotFound, "seller not found")
+		return
+	}
+
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(dbx, item.SellerID)
-		if err != nil {
+		seller, ok := userSimples[item.SellerID]
+		//		seller, err := getUserSimpleByID(dbx, item.SellerID)
+		if !ok { // err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
@@ -977,10 +1025,24 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var userIds = make([]int64, 0, len(items)*2)
+	for _, item := range items {
+		userIds = append(userIds, item.SellerID)
+		userIds = append(userIds, item.BuyerID)
+	}
+	userSimples, err := getUserSimpleByIDs(dbx, userIds)
+	if err != nil {
+		log.Printf("err: %v", err)
+		outputErrorMsg(w, http.StatusNotFound, "seller not found")
+		return
+	}
+
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
-		seller, err := getUserSimpleByID(tx, item.SellerID)
-		if err != nil {
+		//seller, err := getUserSimpleByID(tx, item.SellerID)
+		seller, ok := userSimples[item.SellerID]
+		if !ok { // err != nil {
+			log.Printf("seller not found: %v", item.SellerID)
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			tx.Rollback()
 			return
@@ -1012,8 +1074,10 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if item.BuyerID != 0 {
-			buyer, err := getUserSimpleByID(tx, item.BuyerID)
-			if err != nil {
+			//buyer, err := getUserSimpleByID(tx, item.BuyerID)
+			buyer, ok := userSimples[item.BuyerID]
+			if !ok { // err != nil {
+				log.Printf("buyer not found: %v", item.BuyerID)
 				outputErrorMsg(w, http.StatusNotFound, "buyer not found")
 				tx.Rollback()
 				return
