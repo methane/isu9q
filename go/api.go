@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 )
 
 const (
@@ -51,16 +52,25 @@ type APIShipmentStatusReq struct {
 	ReserveID string `json:"reserve_id"`
 }
 
+const choconURL = "http://localhost:5000"
+
 func APIPaymentToken(paymentURL string, param *APIPaymentServiceTokenReq) (*APIPaymentServiceTokenRes, error) {
 	b, _ := json.Marshal(param)
 
-	req, err := http.NewRequest(http.MethodPost, paymentURL+"/token", bytes.NewBuffer(b))
+	req, err := http.NewRequest(http.MethodPost, choconURL+"/token", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
 	}
 
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Content-Type", "application/json")
+	u, _ := url.Parse(paymentURL)
+	if u.Scheme == "https" {
+		req.Host = u.Hostname()+".ccnproxy-https"
+		log.Print(req.Host)
+	} else {
+		req.Host = u.Hostname()
+	}
 
 	log.Printf("api: %v", req.URL)
 	res, err := http.DefaultClient.Do(req)
@@ -89,7 +99,7 @@ func APIPaymentToken(paymentURL string, param *APIPaymentServiceTokenReq) (*APIP
 func APIShipmentCreate(shipmentURL string, param *APIShipmentCreateReq) (*APIShipmentCreateRes, error) {
 	b, _ := json.Marshal(param)
 
-	req, err := http.NewRequest(http.MethodPost, shipmentURL+"/create", bytes.NewBuffer(b))
+	req, err := http.NewRequest(http.MethodPost, choconURL+"/create", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
 	}
@@ -97,6 +107,13 @@ func APIShipmentCreate(shipmentURL string, param *APIShipmentCreateReq) (*APIShi
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", IsucariAPIToken)
+	u, _ := url.Parse(shipmentURL)
+	if u.Scheme == "https" {
+		req.Host = u.Hostname()+".ccnproxy-https"
+		log.Print(req.Host)
+	} else {
+		req.Host = u.Hostname()
+	}
 
 	log.Printf("api: %v", req.URL)
 	res, err := http.DefaultClient.Do(req)
@@ -125,7 +142,7 @@ func APIShipmentCreate(shipmentURL string, param *APIShipmentCreateReq) (*APIShi
 func APIShipmentRequest(shipmentURL string, param *APIShipmentRequestReq) ([]byte, error) {
 	b, _ := json.Marshal(param)
 
-	req, err := http.NewRequest(http.MethodPost, shipmentURL+"/request", bytes.NewBuffer(b))
+	req, err := http.NewRequest(http.MethodPost, choconURL+"/request", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
 	}
@@ -133,6 +150,13 @@ func APIShipmentRequest(shipmentURL string, param *APIShipmentRequestReq) ([]byt
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", IsucariAPIToken)
+	u, _ := url.Parse(shipmentURL)
+	if u.Scheme == "https" {
+		req.Host = u.Hostname()+".ccnproxy-https"
+		log.Print(req.Host)
+	} else {
+		req.Host = u.Hostname()
+	}
 
 	log.Printf("api: %v", req.URL)
 	res, err := http.DefaultClient.Do(req)
@@ -155,7 +179,7 @@ func APIShipmentRequest(shipmentURL string, param *APIShipmentRequestReq) ([]byt
 func APIShipmentStatus(shipmentURL string, param *APIShipmentStatusReq) (*APIShipmentStatusRes, error) {
 	b, _ := json.Marshal(param)
 
-	req, err := http.NewRequest(http.MethodGet, shipmentURL+"/status", bytes.NewBuffer(b))
+	req, err := http.NewRequest(http.MethodGet, choconURL+"/status", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
 	}
@@ -163,6 +187,13 @@ func APIShipmentStatus(shipmentURL string, param *APIShipmentStatusReq) (*APIShi
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", IsucariAPIToken)
+	u, _ := url.Parse(shipmentURL)
+	if u.Scheme == "https" {
+		req.Host = u.Hostname()+".ccnproxy-https"
+		log.Print(req.Host)
+	} else {
+		req.Host = u.Hostname()
+	}
 
 	log.Printf("api: %v", req.URL)
 	res, err := http.DefaultClient.Do(req)
