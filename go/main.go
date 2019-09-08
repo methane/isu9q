@@ -556,6 +556,10 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 		Language: "Go",
 	}
 
+	soldCacheMutex.Lock()
+	soldCache = make(map[int64]bool)
+	soldCacheMutex.Unlock()
+
 	if err := StartProfile(time.Minute); err != nil {
 		log.Printf("failed to start profile; %v", err)
 	}
@@ -1338,6 +1342,24 @@ func itemLock(i int) func() {
 	return itemMutex[n].Unlock
 }
 
+var (
+	soldCacheMutex sync.Mutex
+	soldCache      = make(map[int64]bool)
+)
+
+func checkSold(itemID int64) bool {
+	soldCacheMutex.Lock()
+	res := soldCache[itemID]
+	soldCacheMutex.Unlock()
+	return res
+}
+
+func setSold(itemID int64) {
+	soldCacheMutex.Lock()
+	soldCache[itemID] = true
+	soldCacheMutex.Unlock()
+}
+
 func postBuy(w http.ResponseWriter, r *http.Request) {
 	rb := reqBuy{}
 
@@ -1360,10 +1382,12 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer itemLock(int(rb.ItemID))()
+	if checkSold(rb.ItemID) {
+		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
+		return
+	}
 
-	log.Printf("postBuy: begin lock item_id=%d", rb.ItemID)
 	tx := dbx.MustBegin()
-	log.Printf("postBuy: got lock item_id=%d", rb.ItemID)
 
 	targetItem := Item{}
 	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? FOR UPDATE", rb.ItemID)
@@ -1381,6 +1405,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if targetItem.Status != ItemStatusOnSale {
+		setSold(rb.ItemID)
 		log.Printf("postBuy: not for sale item_id=%d", rb.ItemID)
 		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
 		tx.Rollback()
