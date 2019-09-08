@@ -268,6 +268,63 @@ type resSetting struct {
 	Categories        []Category `json:"categories"`
 }
 
+var (
+	mCategories = map[int]Category{
+		1:  {1, 0, "ソファー", "NULL"},
+		2:  {2, 1, "一人掛けソファー", "ソファー"},
+		3:  {3, 1, "二人掛けソファー", "ソファー"},
+		4:  {4, 1, "コーナーソファー", "ソファー"},
+		5:  {5, 1, "二段ソファー", "ソファー"},
+		6:  {6, 1, "ソファーベッド", "ソファー"},
+		10: {10, 0, "家庭用チェア", "NULL"},
+		11: {11, 10, "スツール", "家庭用チェア"},
+		12: {12, 10, "クッションスツール", "家庭用チェア"},
+		13: {13, 10, "ダイニングチェア", "家庭用チェア"},
+		14: {14, 10, "リビングチェア", "家庭用チェア"},
+		15: {15, 10, "カウンターチェア", "家庭用チェア"},
+		20: {20, 0, "キッズチェア", "NULL"},
+		21: {21, 20, "学習チェア", "キッズチェア"},
+		22: {22, 20, "ベビーソファ", "キッズチェア"},
+		23: {23, 20, "キッズハイチェア", "キッズチェア"},
+		24: {24, 20, "テーブルチェア", "キッズチェア"},
+		30: {30, 0, "オフィスチェア", "NULL"},
+		31: {31, 30, "デスクチェア", "オフィスチェア"},
+		32: {32, 30, "ビジネスチェア", "オフィスチェア"},
+		33: {33, 30, "回転チェア", "オフィスチェア"},
+		34: {34, 30, "リクライニングチェア", "オフィスチェア"},
+		35: {35, 30, "投擲用椅子", "オフィスチェア"},
+		40: {40, 0, "折りたたみ椅子", "NULL"},
+		41: {41, 40, "パイプ椅子", "折りたたみ椅子"},
+		42: {42, 40, "木製折りたたみ椅子", "折りたたみ椅子"},
+		43: {43, 40, "キッチンチェア", "折りたたみ椅子"},
+		44: {44, 40, "アウトドアチェア", "折りたたみ椅子"},
+		45: {45, 40, "作業椅子", "折りたたみ椅子"},
+		50: {50, 0, "ベンチ", "NULL"},
+		51: {51, 50, "一人掛けベンチ", "ベンチ"},
+		52: {52, 50, "二人掛けベンチ", "ベンチ"},
+		53: {53, 50, "アウトドア用ベンチ", "ベンチ"},
+		54: {54, 50, "収納付きベンチ", "ベンチ"},
+		55: {55, 50, "背もたれ付きベンチ", "ベンチ"},
+		56: {56, 50, "ベンチマーク", "ベンチ"},
+		60: {60, 0, "座椅子", "NULL"},
+		61: {61, 60, "和風座椅子", "座椅子"},
+		62: {62, 60, "高座椅子", "座椅子"},
+		63: {63, 60, "ゲーミング座椅子", "座椅子"},
+		64: {64, 60, "ロッキングチェア", "座椅子"},
+		65: {65, 60, "座布団", "座椅子"},
+		66: {66, 60, "空気椅子", "座椅子"},
+	}
+	mChildCategories = map[int][]int{
+		1:  {2, 3, 4, 5, 6},
+		10: {11, 12, 13, 14, 15},
+		20: {21, 22, 23, 24},
+		30: {31, 32, 33, 34, 35},
+		40: {41, 42, 43, 44, 45},
+		50: {51, 52, 53, 54, 55, 56},
+		60: {61, 62, 63, 64, 65, 66},
+	}
+)
+
 func init() {
 	store = sessions.NewCookieStore([]byte("abc"))
 
@@ -408,15 +465,10 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 }
 
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
-	err = sqlx.Get(q, &category, "SELECT * FROM `categories` WHERE `id` = ?", categoryID)
-	if category.ParentID != 0 {
-		parentCategory, err := getCategoryByID(q, category.ParentID)
-		if err != nil {
-			return category, err
-		}
-		category.ParentCategoryName = parentCategory.CategoryName
+	if cat, ok := mCategories[categoryID]; ok {
+		return cat, nil
 	}
-	return category, err
+	return Category{}, fmt.Errorf("category not found: id = %v", categoryID)
 }
 
 func getConfigByName(name string) (string, error) {
@@ -493,7 +545,7 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 
 	res := resInitialize{
 		// キャンペーン実施時には還元率の設定を返す。詳しくはマニュアルを参照のこと。
-		Campaign: 0,
+		Campaign: 4,
 		// 実装言語を返す
 		Language: "Go",
 	}
@@ -616,11 +668,10 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var categoryIDs []int
-	err = dbx.Select(&categoryIDs, "SELECT id FROM `categories` WHERE parent_id=?", rootCategory.ID)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+	categoryIDs, ok := mChildCategories[rootCategory.ID]
+	if !ok {
+		log.Printf("invalid root category: %v", rootCategory.ID)
+		outputErrorMsg(w, http.StatusInternalServerError, "invalid root category")
 		return
 	}
 
@@ -2157,12 +2208,8 @@ func getSettings(w http.ResponseWriter, r *http.Request) {
 	ress.PaymentServiceURL = getPaymentServiceURL()
 
 	categories := []Category{}
-
-	err := dbx.Select(&categories, "SELECT * FROM `categories`")
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
+	for _, c := range mCategories {
+		categories = append(categories, c)
 	}
 	ress.Categories = categories
 
