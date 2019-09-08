@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 )
 
 const (
@@ -54,14 +55,16 @@ type APIShipmentStatusReq struct {
 }
 
 var (
-	muCounter sync.Mutex
-	counter   = 0
+	muCounter  sync.Mutex
+	counter    = 0
 	choconURLs = []string{
 		"http://app01:5000",
 		"http://app02:5000",
 		"http://app03:5000",
 	}
 )
+
+const retryLimit = 10
 
 func getChoconURL() string {
 	muCounter.Lock()
@@ -72,7 +75,10 @@ func getChoconURL() string {
 
 func APIPaymentToken(paymentURL string, param *APIPaymentServiceTokenReq) (*APIPaymentServiceTokenRes, error) {
 	b, _ := json.Marshal(param)
+	return APIPaymentTokenTry(paymentURL, b, 0)
+}
 
+func APIPaymentTokenTry(paymentURL string, b []byte, count int) (*APIPaymentServiceTokenRes, error) {
 	req, err := http.NewRequest(http.MethodPost, getChoconURL()+"/token", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
@@ -82,7 +88,7 @@ func APIPaymentToken(paymentURL string, param *APIPaymentServiceTokenReq) (*APIP
 	req.Header.Set("Content-Type", "application/json")
 	u, _ := url.Parse(paymentURL)
 	if u.Scheme == "https" {
-		req.Host = u.Hostname()+".ccnproxy-https"
+		req.Host = u.Hostname() + ".ccnproxy-https"
 		log.Print(req.Host)
 	} else {
 		req.Host = u.Hostname()
@@ -96,11 +102,16 @@ func APIPaymentToken(paymentURL string, param *APIPaymentServiceTokenReq) (*APIP
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
-		b, err := ioutil.ReadAll(res.Body)
+		rb, err := ioutil.ReadAll(res.Body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read res.Body and the status code of the response from shipment service was not 200: %v", err)
 		}
-		return nil, fmt.Errorf("status code: %d; body: %s", res.StatusCode, b)
+		if count < retryLimit {
+			log.Printf("retry: %v", string(rb))
+			time.Sleep(100 * time.Millisecond)
+			return APIPaymentTokenTry(paymentURL, b, count+1)
+		}
+		return nil, fmt.Errorf("status code: %d; body: %s", res.StatusCode, rb)
 	}
 
 	pstr := &APIPaymentServiceTokenRes{}
@@ -114,7 +125,9 @@ func APIPaymentToken(paymentURL string, param *APIPaymentServiceTokenReq) (*APIP
 
 func APIShipmentCreate(shipmentURL string, param *APIShipmentCreateReq) (*APIShipmentCreateRes, error) {
 	b, _ := json.Marshal(param)
-
+	return APIShipmentCreateTry(shipmentURL, b, 0)
+}
+func APIShipmentCreateTry(shipmentURL string, b []byte, count int) (*APIShipmentCreateRes, error) {
 	req, err := http.NewRequest(http.MethodPost, getChoconURL()+"/create", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
@@ -125,7 +138,7 @@ func APIShipmentCreate(shipmentURL string, param *APIShipmentCreateReq) (*APIShi
 	req.Header.Set("Authorization", IsucariAPIToken)
 	u, _ := url.Parse(shipmentURL)
 	if u.Scheme == "https" {
-		req.Host = u.Hostname()+".ccnproxy-https"
+		req.Host = u.Hostname() + ".ccnproxy-https"
 		log.Print(req.Host)
 	} else {
 		req.Host = u.Hostname()
@@ -139,11 +152,16 @@ func APIShipmentCreate(shipmentURL string, param *APIShipmentCreateReq) (*APIShi
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
-		b, err := ioutil.ReadAll(res.Body)
+		rb, err := ioutil.ReadAll(res.Body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read res.Body and the status code of the response from shipment service was not 200: %v", err)
 		}
-		return nil, fmt.Errorf("status code: %d; body: %s", res.StatusCode, b)
+		if count < retryLimit {
+			log.Printf("retry: %v", string(rb))
+			time.Sleep(100 * time.Millisecond)
+			return APIShipmentCreateTry(shipmentURL, b, count+1)
+		}
+		return nil, fmt.Errorf("status code: %d; body: %s", res.StatusCode, rb)
 	}
 
 	scr := &APIShipmentCreateRes{}
@@ -157,7 +175,10 @@ func APIShipmentCreate(shipmentURL string, param *APIShipmentCreateReq) (*APIShi
 
 func APIShipmentRequest(shipmentURL string, param *APIShipmentRequestReq) ([]byte, error) {
 	b, _ := json.Marshal(param)
+	return APIShipmentRequestTry(shipmentURL, b, 0)
+}
 
+func APIShipmentRequestTry(shipmentURL string, b []byte, count int) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodPost, getChoconURL()+"/request", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
@@ -168,7 +189,7 @@ func APIShipmentRequest(shipmentURL string, param *APIShipmentRequestReq) ([]byt
 	req.Header.Set("Authorization", IsucariAPIToken)
 	u, _ := url.Parse(shipmentURL)
 	if u.Scheme == "https" {
-		req.Host = u.Hostname()+".ccnproxy-https"
+		req.Host = u.Hostname() + ".ccnproxy-https"
 		log.Print(req.Host)
 	} else {
 		req.Host = u.Hostname()
@@ -182,11 +203,16 @@ func APIShipmentRequest(shipmentURL string, param *APIShipmentRequestReq) ([]byt
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
-		b, err := ioutil.ReadAll(res.Body)
+		rb, err := ioutil.ReadAll(res.Body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read res.Body and the status code of the response from shipment service was not 200: %v", err)
 		}
-		return nil, fmt.Errorf("status code: %d; body: %s", res.StatusCode, b)
+		if count < retryLimit {
+			log.Printf("retry: %v", string(rb))
+			time.Sleep(100 * time.Millisecond)
+			return APIShipmentRequestTry(shipmentURL, b, count+1)
+		}
+		return nil, fmt.Errorf("status code: %d; body: %s", res.StatusCode, rb)
 	}
 
 	return ioutil.ReadAll(res.Body)
@@ -194,7 +220,10 @@ func APIShipmentRequest(shipmentURL string, param *APIShipmentRequestReq) ([]byt
 
 func APIShipmentStatus(shipmentURL string, param *APIShipmentStatusReq) (*APIShipmentStatusRes, error) {
 	b, _ := json.Marshal(param)
+	return APIShipmentStatusTry(shipmentURL, b, 0)
+}
 
+func APIShipmentStatusTry(shipmentURL string, b []byte, count int) (*APIShipmentStatusRes, error) {
 	req, err := http.NewRequest(http.MethodGet, getChoconURL()+"/status", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
@@ -205,7 +234,7 @@ func APIShipmentStatus(shipmentURL string, param *APIShipmentStatusReq) (*APIShi
 	req.Header.Set("Authorization", IsucariAPIToken)
 	u, _ := url.Parse(shipmentURL)
 	if u.Scheme == "https" {
-		req.Host = u.Hostname()+".ccnproxy-https"
+		req.Host = u.Hostname() + ".ccnproxy-https"
 		log.Print(req.Host)
 	} else {
 		req.Host = u.Hostname()
@@ -219,11 +248,16 @@ func APIShipmentStatus(shipmentURL string, param *APIShipmentStatusReq) (*APIShi
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
-		b, err := ioutil.ReadAll(res.Body)
+		rb, err := ioutil.ReadAll(res.Body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read res.Body and the status code of the response from shipment service was not 200: %v", err)
 		}
-		return nil, fmt.Errorf("status code: %d; body: %s", res.StatusCode, b)
+		if count < retryLimit {
+			log.Printf("retry: %v", string(rb))
+			time.Sleep(100 * time.Millisecond)
+			return APIShipmentStatusTry(shipmentURL, b, count+1)
+		}
+		return nil, fmt.Errorf("status code: %d; body: %s", res.StatusCode, rb)
 	}
 
 	ssr := &APIShipmentStatusRes{}
