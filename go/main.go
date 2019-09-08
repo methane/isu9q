@@ -498,6 +498,10 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 		Language: "Go",
 	}
 
+	if err := StartProfile(time.Minute); err != nil {
+		log.Printf("failed to start profile; %v", err)
+	}
+
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(res)
 }
