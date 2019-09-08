@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"sync"
 )
 
 const (
@@ -52,12 +53,27 @@ type APIShipmentStatusReq struct {
 	ReserveID string `json:"reserve_id"`
 }
 
-const choconURL = "http://localhost:5000"
+var (
+	muCounter sync.Mutex
+	counter   = 0
+	choconURLs = []string{
+		"http://app01:5000",
+		"http://app02:5000",
+		"http://app03:5000",
+	}
+)
+
+func getChoconURL() string {
+	muCounter.Lock()
+	defer muCounter.Unlock()
+	counter++
+	return choconURLs[counter%3]
+}
 
 func APIPaymentToken(paymentURL string, param *APIPaymentServiceTokenReq) (*APIPaymentServiceTokenRes, error) {
 	b, _ := json.Marshal(param)
 
-	req, err := http.NewRequest(http.MethodPost, choconURL+"/token", bytes.NewBuffer(b))
+	req, err := http.NewRequest(http.MethodPost, getChoconURL()+"/token", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +115,7 @@ func APIPaymentToken(paymentURL string, param *APIPaymentServiceTokenReq) (*APIP
 func APIShipmentCreate(shipmentURL string, param *APIShipmentCreateReq) (*APIShipmentCreateRes, error) {
 	b, _ := json.Marshal(param)
 
-	req, err := http.NewRequest(http.MethodPost, choconURL+"/create", bytes.NewBuffer(b))
+	req, err := http.NewRequest(http.MethodPost, getChoconURL()+"/create", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +158,7 @@ func APIShipmentCreate(shipmentURL string, param *APIShipmentCreateReq) (*APIShi
 func APIShipmentRequest(shipmentURL string, param *APIShipmentRequestReq) ([]byte, error) {
 	b, _ := json.Marshal(param)
 
-	req, err := http.NewRequest(http.MethodPost, choconURL+"/request", bytes.NewBuffer(b))
+	req, err := http.NewRequest(http.MethodPost, getChoconURL()+"/request", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +195,7 @@ func APIShipmentRequest(shipmentURL string, param *APIShipmentRequestReq) ([]byt
 func APIShipmentStatus(shipmentURL string, param *APIShipmentStatusReq) (*APIShipmentStatusRes, error) {
 	b, _ := json.Marshal(param)
 
-	req, err := http.NewRequest(http.MethodGet, choconURL+"/status", bytes.NewBuffer(b))
+	req, err := http.NewRequest(http.MethodGet, getChoconURL()+"/status", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
 	}
