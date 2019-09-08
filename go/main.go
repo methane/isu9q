@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -545,7 +546,7 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 
 	res := resInitialize{
 		// キャンペーン実施時には還元率の設定を返す。詳しくはマニュアルを参照のこと。
-		Campaign: 4,
+		Campaign: 0,
 		// 実装言語を返す
 		Language: "Go",
 	}
@@ -1036,19 +1037,23 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 				tx.Rollback()
 				return
 			}
-			ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
-				ReserveID: shipping.ReserveID,
-			})
-			if err != nil {
-				log.Print(err)
-				outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
-				tx.Rollback()
-				return
+			sst := shipping.Status
+			if shipping.Status == ShippingsStatusWaitPickup {
+				ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
+					ReserveID: shipping.ReserveID,
+				})
+				if err != nil {
+					log.Print(err)
+					outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
+					tx.Rollback()
+					return
+				}
+				sst = ssr.Status
 			}
 
 			itemDetail.TransactionEvidenceID = transactionEvidence.ID
 			itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
-			itemDetail.ShippingStatus = ssr.Status
+			itemDetail.ShippingStatus = sst
 		}
 
 		itemDetails = append(itemDetails, itemDetail)
@@ -1320,6 +1325,14 @@ func getQRCode(w http.ResponseWriter, r *http.Request) {
 	w.Write(shipping.ImgBinary)
 }
 
+var itemMutex []sync.Mutex = make([]sync.Mutex, 100)
+
+func itemLock(i int) func() {
+	n := i % 100
+	itemMutex[n].Lock()
+	return itemMutex[n].Unlock
+}
+
 func postBuy(w http.ResponseWriter, r *http.Request) {
 	rb := reqBuy{}
 
@@ -1341,7 +1354,11 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	defer itemLock(int(rb.ItemID))()
+
+	log.Printf("postBuy: begin lock item_id=%d", rb.ItemID)
 	tx := dbx.MustBegin()
+	log.Printf("postBuy: got lock item_id=%d", rb.ItemID)
 
 	targetItem := Item{}
 	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ? FOR UPDATE", rb.ItemID)
@@ -1359,19 +1376,21 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if targetItem.Status != ItemStatusOnSale {
+		log.Printf("postBuy: not for sale item_id=%d", rb.ItemID)
 		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
 		tx.Rollback()
 		return
 	}
 
 	if targetItem.SellerID == buyer.ID {
+		log.Printf("postBuy: forbidden item_id=%d", rb.ItemID)
 		outputErrorMsg(w, http.StatusForbidden, "自分の商品は買えません")
 		tx.Rollback()
 		return
 	}
 
 	seller := User{}
-	err = tx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ? FOR UPDATE", targetItem.SellerID)
+	err = tx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ?", targetItem.SellerID)
 	if err == sql.ErrNoRows {
 		outputErrorMsg(w, http.StatusNotFound, "seller not found")
 		tx.Rollback()
@@ -1379,7 +1398,6 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		log.Print(err)
-
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		tx.Rollback()
 		return
@@ -1388,6 +1406,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	category, err := getCategoryByID(tx, targetItem.CategoryID)
 	if err != nil {
 		log.Print(err)
+		log.Printf("postBuy: category item_id=%d", rb.ItemID)
 
 		outputErrorMsg(w, http.StatusInternalServerError, "category id error")
 		tx.Rollback()
@@ -1436,26 +1455,14 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scr, err := APIShipmentCreate(getShipmentServiceURL(), &APIShipmentCreateReq{
-		ToAddress:   buyer.Address,
-		ToName:      buyer.AccountName,
-		FromAddress: seller.Address,
-		FromName:    seller.AccountName,
-	})
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
-		tx.Rollback()
-
-		return
-	}
-
+	log.Printf("postBuy: start pay item_id=%d", rb.ItemID)
 	pstr, err := APIPaymentToken(getPaymentServiceURL(), &APIPaymentServiceTokenReq{
 		ShopID: PaymentServiceIsucariShopID,
 		Token:  rb.Token,
 		APIKey: PaymentServiceIsucariAPIKey,
 		Price:  targetItem.Price,
 	})
+	log.Printf("postBuy: finish pay item_id=%d", rb.ItemID)
 	if err != nil {
 		log.Print(err)
 
@@ -1479,6 +1486,22 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	if pstr.Status != "ok" {
 		outputErrorMsg(w, http.StatusBadRequest, "想定外のエラー")
 		tx.Rollback()
+		return
+	}
+
+	log.Printf("postBuy: start ship item_id=%d", rb.ItemID)
+	scr, err := APIShipmentCreate(getShipmentServiceURL(), &APIShipmentCreateReq{
+		ToAddress:   buyer.Address,
+		ToName:      buyer.AccountName,
+		FromAddress: seller.Address,
+		FromName:    seller.AccountName,
+	})
+	log.Printf("postBuy: finish ship item_id=%d", rb.ItemID)
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
+		tx.Rollback()
+
 		return
 	}
 
