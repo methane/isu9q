@@ -7,9 +7,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/url"
-	"sync"
-	"time"
 )
 
 const (
@@ -54,24 +51,7 @@ type APIShipmentStatusReq struct {
 	ReserveID string `json:"reserve_id"`
 }
 
-var (
-	muCounter  sync.Mutex
-	counter    = 0
-	choconURLs = []string{
-		"http://app01:5000",
-		"http://app02:5000",
-		"http://app03:5000",
-	}
-)
-
-const retryLimit = 10
-
-func getChoconURL() string {
-	muCounter.Lock()
-	defer muCounter.Unlock()
-	counter++
-	return choconURLs[counter%3]
-}
+const retryLimit = 20
 
 func APIPaymentToken(paymentURL string, param *APIPaymentServiceTokenReq) (*APIPaymentServiceTokenRes, error) {
 	b, _ := json.Marshal(param)
@@ -79,21 +59,13 @@ func APIPaymentToken(paymentURL string, param *APIPaymentServiceTokenReq) (*APIP
 }
 
 func APIPaymentTokenTry(paymentURL string, b []byte, count int) (*APIPaymentServiceTokenRes, error) {
-	req, err := http.NewRequest(http.MethodPost, getChoconURL()+"/token", bytes.NewBuffer(b))
+	req, err := http.NewRequest(http.MethodPost, paymentURL+"/token", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
 	}
 
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Content-Type", "application/json")
-	u, _ := url.Parse(paymentURL)
-	if u.Scheme == "https" {
-		req.Host = u.Hostname() + ".ccnproxy-https"
-		log.Print(req.Host)
-	} else {
-		req.Host = u.Hostname()
-	}
-
 	log.Printf("api: %v", req.URL)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -108,7 +80,6 @@ func APIPaymentTokenTry(paymentURL string, b []byte, count int) (*APIPaymentServ
 		}
 		if count < retryLimit {
 			log.Printf("retry: %v", string(rb))
-			time.Sleep(100 * time.Millisecond)
 			return APIPaymentTokenTry(paymentURL, b, count+1)
 		}
 		return nil, fmt.Errorf("status code: %d; body: %s", res.StatusCode, rb)
@@ -128,7 +99,7 @@ func APIShipmentCreate(shipmentURL string, param *APIShipmentCreateReq) (*APIShi
 	return APIShipmentCreateTry(shipmentURL, b, 0)
 }
 func APIShipmentCreateTry(shipmentURL string, b []byte, count int) (*APIShipmentCreateRes, error) {
-	req, err := http.NewRequest(http.MethodPost, getChoconURL()+"/create", bytes.NewBuffer(b))
+	req, err := http.NewRequest(http.MethodPost, shipmentURL+"/create", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
 	}
@@ -136,13 +107,6 @@ func APIShipmentCreateTry(shipmentURL string, b []byte, count int) (*APIShipment
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", IsucariAPIToken)
-	u, _ := url.Parse(shipmentURL)
-	if u.Scheme == "https" {
-		req.Host = u.Hostname() + ".ccnproxy-https"
-		log.Print(req.Host)
-	} else {
-		req.Host = u.Hostname()
-	}
 
 	log.Printf("api: %v", req.URL)
 	res, err := http.DefaultClient.Do(req)
@@ -158,7 +122,6 @@ func APIShipmentCreateTry(shipmentURL string, b []byte, count int) (*APIShipment
 		}
 		if count < retryLimit {
 			log.Printf("retry: %v", string(rb))
-			time.Sleep(100 * time.Millisecond)
 			return APIShipmentCreateTry(shipmentURL, b, count+1)
 		}
 		return nil, fmt.Errorf("status code: %d; body: %s", res.StatusCode, rb)
@@ -179,7 +142,7 @@ func APIShipmentRequest(shipmentURL string, param *APIShipmentRequestReq) ([]byt
 }
 
 func APIShipmentRequestTry(shipmentURL string, b []byte, count int) ([]byte, error) {
-	req, err := http.NewRequest(http.MethodPost, getChoconURL()+"/request", bytes.NewBuffer(b))
+	req, err := http.NewRequest(http.MethodPost, shipmentURL+"/request", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
 	}
@@ -187,13 +150,6 @@ func APIShipmentRequestTry(shipmentURL string, b []byte, count int) ([]byte, err
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", IsucariAPIToken)
-	u, _ := url.Parse(shipmentURL)
-	if u.Scheme == "https" {
-		req.Host = u.Hostname() + ".ccnproxy-https"
-		log.Print(req.Host)
-	} else {
-		req.Host = u.Hostname()
-	}
 
 	log.Printf("api: %v", req.URL)
 	res, err := http.DefaultClient.Do(req)
@@ -209,7 +165,6 @@ func APIShipmentRequestTry(shipmentURL string, b []byte, count int) ([]byte, err
 		}
 		if count < retryLimit {
 			log.Printf("retry: %v", string(rb))
-			time.Sleep(100 * time.Millisecond)
 			return APIShipmentRequestTry(shipmentURL, b, count+1)
 		}
 		return nil, fmt.Errorf("status code: %d; body: %s", res.StatusCode, rb)
@@ -224,7 +179,7 @@ func APIShipmentStatus(shipmentURL string, param *APIShipmentStatusReq) (*APIShi
 }
 
 func APIShipmentStatusTry(shipmentURL string, b []byte, count int) (*APIShipmentStatusRes, error) {
-	req, err := http.NewRequest(http.MethodGet, getChoconURL()+"/status", bytes.NewBuffer(b))
+	req, err := http.NewRequest(http.MethodGet, shipmentURL+"/status", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
 	}
@@ -232,13 +187,6 @@ func APIShipmentStatusTry(shipmentURL string, b []byte, count int) (*APIShipment
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", IsucariAPIToken)
-	u, _ := url.Parse(shipmentURL)
-	if u.Scheme == "https" {
-		req.Host = u.Hostname() + ".ccnproxy-https"
-		log.Print(req.Host)
-	} else {
-		req.Host = u.Hostname()
-	}
 
 	log.Printf("api: %v", req.URL)
 	res, err := http.DefaultClient.Do(req)
@@ -254,7 +202,6 @@ func APIShipmentStatusTry(shipmentURL string, b []byte, count int) (*APIShipment
 		}
 		if count < retryLimit {
 			log.Printf("retry: %v", string(rb))
-			time.Sleep(100 * time.Millisecond)
 			return APIShipmentStatusTry(shipmentURL, b, count+1)
 		}
 		return nil, fmt.Errorf("status code: %d; body: %s", res.StatusCode, rb)
