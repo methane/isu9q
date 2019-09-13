@@ -2333,6 +2333,15 @@ func getSettings(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(ress)
 }
 
+var loginCh = make(chan bool, 2)
+
+func loginLock() func() {
+	loginCh <- true
+	return func() {
+		<-loginCh
+	}
+}
+
 func postLogin(w http.ResponseWriter, r *http.Request) {
 	rl := reqLogin{}
 	err := json.NewDecoder(r.Body).Decode(&rl)
@@ -2349,6 +2358,8 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+
+	defer loginLock()()
 
 	u := User{}
 	err = dbx.Get(&u, "SELECT * FROM `users` WHERE `account_name` = ?", accountName)
