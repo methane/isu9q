@@ -379,8 +379,8 @@ func main() {
 		log.Fatalf("failed to connect to DB: %s.", err.Error())
 	}
 	defer dbx.Close()
-	dbx.SetMaxOpenConns(16)
-	dbx.SetMaxIdleConns(16)
+	dbx.SetMaxOpenConns(32)
+	dbx.SetMaxIdleConns(32)
 	dbx.SetConnMaxLifetime(time.Minute * 3)
 
 	mux := goji.NewMux()
@@ -578,7 +578,7 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 
 	res := resInitialize{
 		// キャンペーン実施時には還元率の設定を返す。詳しくはマニュアルを参照のこと。
-		Campaign: 1,
+		Campaign: 4,
 		// 実装言語を返す
 		Language: "Go",
 	}
@@ -628,7 +628,7 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 			time.Unix(createdAt, 0),
 			time.Unix(createdAt, 0),
 			itemID,
-			ItemsPerPage+1,
+			ItemsPerPage+10,
 		)
 		if err != nil {
 			log.Print(err)
@@ -641,7 +641,7 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 			"SELECT * FROM `items` WHERE `status` IN (?,?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
 			ItemStatusOnSale,
 			ItemStatusSoldOut,
-			ItemsPerPage+1,
+			ItemsPerPage+10,
 		)
 		if err != nil {
 			log.Print(err)
@@ -661,8 +661,15 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	skipCnt := 0
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
+		if skipCnt < 5 && checkBusy(item.ID) {
+			log.Printf("getNewItems skip: %v", item.ID)
+			skipCnt++
+			continue
+		}
+
 		seller, ok := userSimples[item.SellerID]
 		//		seller, err := getUserSimpleByID(dbx, item.SellerID)
 		if !ok { //err != nil {
@@ -802,6 +809,7 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
+
 		seller, ok := userSimples[item.SellerID]
 		//		seller, err := getUserSimpleByID(dbx, item.SellerID)
 		if !ok { // err != nil {
@@ -902,7 +910,7 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// 1st page
 		err := dbx.Select(&items,
-			"SELECT * FROM `items` WHERE `seller_id` = ? AND `status` IN (?,?,?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			"SELECT id,seller_id,status,name,price,image_name,category_id,created_at FROM `items` WHERE `seller_id` = ? AND `status` IN (?,?,?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
 			userSimple.ID,
 			ItemStatusOnSale,
 			ItemStatusTrading,
@@ -1397,12 +1405,45 @@ func getQRCode(w http.ResponseWriter, r *http.Request) {
 	w.Write(shipping.ImgBinary)
 }
 
-var itemMutex []sync.Mutex = make([]sync.Mutex, 100)
+var (
+	itemMutex []chan bool
+	busyMutex sync.Mutex
+	busyItems = make(map[int64]bool)
+)
 
-func itemLock(i int) func() {
+func init() {
+	for i := 0; i < 100; i++ {
+		itemMutex = append(itemMutex, make(chan bool, 8))
+	}
+}
+
+func itemLock(i int64) (func(), bool) {
 	n := i % 100
-	itemMutex[n].Lock()
-	return itemMutex[n].Unlock
+
+	select {
+	case itemMutex[n] <- true:
+		break
+	default:
+		return nil, false
+	}
+
+	busyMutex.Lock()
+	busyItems[i] = true
+	busyMutex.Unlock()
+
+	return func() {
+		busyMutex.Lock()
+		delete(busyItems, i)
+		busyMutex.Unlock()
+		<-itemMutex[n]
+	}, true
+}
+
+func checkBusy(i int64) bool {
+	busyMutex.Lock()
+	b := busyItems[i]
+	busyMutex.Unlock()
+	return b
 }
 
 var (
@@ -1444,8 +1485,16 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer itemLock(int(rb.ItemID))()
+	if f, ok := itemLock(rb.ItemID); ok {
+		defer f()
+	} else {
+		log.Printf("postBuy: too hot: %v", rb.ItemID)
+		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
+		return
+	}
+
 	if checkSold(rb.ItemID) {
+		log.Printf("postBuy: sold: %v", rb.ItemID)
 		outputErrorMsg(w, http.StatusForbidden, "item is not for sale")
 		return
 	}
@@ -1582,6 +1631,7 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	setSold(rb.ItemID)
 	log.Printf("postBuy: start ship item_id=%d", rb.ItemID)
 	scr, err := APIShipmentCreate(getShipmentServiceURL(), &APIShipmentCreateReq{
 		ToAddress:   buyer.Address,
@@ -2192,6 +2242,8 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 	}
 	tx.Commit()
 
+	log.Printf("sell: price=%v", price)
+
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(resSell{ID: itemID})
 }
@@ -2333,7 +2385,7 @@ func getSettings(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(ress)
 }
 
-var loginCh = make(chan bool, 2)
+var loginCh = make(chan bool, 6)
 
 func loginLock() func() {
 	loginCh <- true

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"runtime"
 	"runtime/pprof"
+	//	"runtime/trace"
 	"time"
 
 	_ "net/http/pprof"
@@ -76,6 +77,25 @@ func StartProfile(duration time.Duration) error {
 	return nil
 }
 
+/*
+func StartProfile(duration time.Duration) error {
+	f, err := os.Create("trace.out")
+	if err != nil {
+		return err
+	}
+	log.Printf("start tracing to trace.out")
+	trace.Start(f)
+
+	if 0 < duration.Seconds() {
+		go func() {
+			time.Sleep(duration)
+			trace.Stop()
+		}()
+	}
+	return nil
+}
+*/
+
 func EndProfile() error {
 	if !isProfiling {
 		return nil
@@ -89,13 +109,16 @@ func EndProfile() error {
 	if err != nil {
 		return err
 	}
-	pprof.WriteHeapProfile(mf)
+	pprof.Lookup("allocs").WriteTo(mf, 0)
+	//pprof.WriteHeapProfile(mf)
+	mf.Close()
 
 	bf, err := os.Create(blockProfileFile)
 	if err != nil {
 		return err
 	}
 	pprof.Lookup("block").WriteTo(bf, 0)
+	bf.Close()
 	return nil
 }
 

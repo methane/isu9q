@@ -66,7 +66,7 @@ func APIPaymentTokenTry(paymentURL string, b []byte, count int) (*APIPaymentServ
 
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Content-Type", "application/json")
-	log.Printf("api: %v", req.URL)
+	//log.Printf("api: %v", req.URL)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -108,7 +108,7 @@ func APIShipmentCreateTry(shipmentURL string, b []byte, count int) (*APIShipment
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", IsucariAPIToken)
 
-	log.Printf("api: %v", req.URL)
+	//log.Printf("api: %v", req.URL)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -151,7 +151,7 @@ func APIShipmentRequestTry(shipmentURL string, b []byte, count int) ([]byte, err
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", IsucariAPIToken)
 
-	log.Printf("api: %v", req.URL)
+	//log.Printf("api: %v", req.URL)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -188,7 +188,7 @@ func APIShipmentStatusTry(shipmentURL string, b []byte, count int) (*APIShipment
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", IsucariAPIToken)
 
-	log.Printf("api: %v", req.URL)
+	//log.Printf("api: %v", req.URL)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
