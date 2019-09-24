@@ -642,7 +642,7 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 			"SELECT"+ItemSimpleColumns+"FROM `items` WHERE `status` IN (?,?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
 			ItemStatusOnSale,
 			ItemStatusSoldOut,
-			ItemsPerPage+10,
+			ItemsPerPage+1,
 		)
 		if err != nil {
 			log.Print(err)
@@ -662,15 +662,8 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	skipCnt := 0
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		if skipCnt < 5 && checkBusy(item.ID) {
-			log.Printf("getNewItems skip: %v", item.ID)
-			skipCnt++
-			continue
-		}
-
 		seller, ok := userSimples[item.SellerID]
 		//		seller, err := getUserSimpleByID(dbx, item.SellerID)
 		if !ok { //err != nil {
@@ -1408,8 +1401,6 @@ func getQRCode(w http.ResponseWriter, r *http.Request) {
 
 var (
 	itemMutex []chan bool
-	busyMutex sync.Mutex
-	busyItems = make(map[int64]bool)
 )
 
 func init() {
@@ -1428,23 +1419,9 @@ func itemLock(i int64) (func(), bool) {
 		return nil, false
 	}
 
-	busyMutex.Lock()
-	busyItems[i] = true
-	busyMutex.Unlock()
-
 	return func() {
-		busyMutex.Lock()
-		delete(busyItems, i)
-		busyMutex.Unlock()
 		<-itemMutex[n]
 	}, true
-}
-
-func checkBusy(i int64) bool {
-	busyMutex.Lock()
-	b := busyItems[i]
-	busyMutex.Unlock()
-	return b
 }
 
 var (
