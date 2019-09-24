@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime/pprof"
 	"strconv"
 	"sync"
 	"time"
@@ -443,22 +442,28 @@ func getCSRFToken(r *http.Request) string {
 }
 
 func getUser(r *http.Request) (user User, errCode int, errMsg string) {
-	session := getSession(r)
-	userID, ok := session.Values["user_id"]
-	if !ok {
-		return user, http.StatusNotFound, "no session"
+	userID, errCode, errMsg := getUserID(r)
+	if errMsg != "" {
+		return
 	}
 
 	err := dbx.Get(&user, "SELECT * FROM `users` WHERE `id` = ?", userID)
 	if err == sql.ErrNoRows {
 		return user, http.StatusNotFound, "user not found"
 	}
-	if err != nil {
-		pprof.Lookup("goroutine").WriteTo(os.Stderr, 1)
-		log.Print(err)
-		return user, http.StatusInternalServerError, "db error"
+	return user, http.StatusOK, ""
+}
+
+func getUserSimple(r *http.Request) (user UserSimple, errCode int, errMsg string) {
+	userID, errCode, errMsg := getUserID(r)
+	if errMsg != "" {
+		return
 	}
 
+	err := dbx.Get(&user, "SELECT id, account_name, num_sell_items FROM `users` WHERE `id` = ?", userID)
+	if err == sql.ErrNoRows {
+		return user, http.StatusNotFound, "user not found"
+	}
 	return user, http.StatusOK, ""
 }
 
