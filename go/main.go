@@ -2208,6 +2208,8 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
 	}
+	targetItem.CreatedAt = now
+	targetItem.UpdatedAt = now
 
 	_, err = tx.Exec("UPDATE `users` SET `last_bump`=? WHERE id=?",
 		now,
@@ -2219,15 +2221,6 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	updateUserBump(seller.ID, now)
-
-	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ?", itemID)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		tx.Rollback()
-		return
-	}
-
 	tx.Commit()
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
