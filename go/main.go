@@ -340,6 +340,16 @@ func init() {
 	))
 }
 
+func loggerMiddleware(inner http.Handler) http.Handler {
+	m := func(w http.ResponseWriter, r *http.Request) {
+		t0 := time.Now()
+		url := r.URL
+		inner.ServeHTTP(w, r)
+		log.Printf("%v - %v - %v", t0, time.Since(t0), url)
+	}
+	return http.HandlerFunc(m)
+}
+
 func main() {
 	host := os.Getenv("MYSQL_HOST")
 	if host == "" {
@@ -421,6 +431,7 @@ func main() {
 	mux.HandleFunc(pat.Get("/users/setting"), getIndex)
 	// Assets
 	mux.Handle(pat.Get("/*"), http.FileServer(http.Dir("../public")))
+	//mux.Use(loggerMiddleware)
 	log.Fatal(http.ListenAndServe(":8000", mux))
 }
 
@@ -523,6 +534,8 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	initUserCache()
+
 	res := resInitialize{
 		// キャンペーン実施時には還元率の設定を返す。詳しくはマニュアルを参照のこと。
 		Campaign: 4,
@@ -597,22 +610,10 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var sellerIds = make([]int64, 0, len(items))
-	for _, item := range items {
-		sellerIds = append(sellerIds, item.SellerID)
-	}
-	userSimples, err := getUserSimpleByIDs(dbx, sellerIds)
-	if err != nil {
-		log.Printf("err: %v", err)
-		outputErrorMsg(w, http.StatusNotFound, "seller not found")
-		return
-	}
-
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-		seller, ok := userSimples[item.SellerID]
-		//		seller, err := getUserSimpleByID(dbx, item.SellerID)
-		if !ok { //err != nil {
+		seller, err := getUserSimpleByID(dbx, item.SellerID)
+		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
@@ -736,23 +737,10 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var sellerIds = make([]int64, 0, len(items))
-	for _, item := range items {
-		sellerIds = append(sellerIds, item.SellerID)
-	}
-	userSimples, err := getUserSimpleByIDs(dbx, sellerIds)
-	if err != nil {
-		log.Printf("err: %v", err)
-		outputErrorMsg(w, http.StatusNotFound, "seller not found")
-		return
-	}
-
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
-
-		seller, ok := userSimples[item.SellerID]
-		//		seller, err := getUserSimpleByID(dbx, item.SellerID)
-		if !ok { // err != nil {
+		seller, err := getUserSimpleByID(dbx, item.SellerID)
+		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
@@ -966,23 +954,10 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var userIds = make([]int64, 0, len(items)*2)
-	for _, item := range items {
-		userIds = append(userIds, item.SellerID)
-		userIds = append(userIds, item.BuyerID)
-	}
-	userSimples, err := getUserSimpleByIDs(dbx, userIds)
-	if err != nil {
-		log.Printf("err: %v", err)
-		outputErrorMsg(w, http.StatusNotFound, "seller not found")
-		return
-	}
-
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
-		//seller, err := getUserSimpleByID(tx, item.SellerID)
-		seller, ok := userSimples[item.SellerID]
-		if !ok { // err != nil {
+		seller, err := getUserSimpleByID(tx, item.SellerID)
+		if err != nil {
 			log.Printf("seller not found: %v", item.SellerID)
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			tx.Rollback()
@@ -1015,9 +990,8 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if item.BuyerID != 0 {
-			//buyer, err := getUserSimpleByID(tx, item.BuyerID)
-			buyer, ok := userSimples[item.BuyerID]
-			if !ok { // err != nil {
+			buyer, err := getUserSimpleByID(tx, item.BuyerID)
+			if err != nil {
 				log.Printf("buyer not found: %v", item.BuyerID)
 				outputErrorMsg(w, http.StatusNotFound, "buyer not found")
 				tx.Rollback()
@@ -2177,8 +2151,7 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tx.Commit()
-
-	log.Printf("sell: price=%v", price)
+	updateUserSell(seller.ID, now, seller.NumSellItems+1)
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(resSell{ID: itemID})
@@ -2278,6 +2251,7 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
 	}
+	updateUserBump(seller.ID, now)
 
 	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ?", itemID)
 	if err != nil {
