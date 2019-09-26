@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"log"
 	"net/http"
 	"sync"
@@ -64,19 +65,29 @@ func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 		return
 	}
 
+	user, err := getUserByID(userID)
+	if err != nil {
+		log.Println(err)
+		return user, http.StatusNotFound, "user not found"
+	}
+	return user, http.StatusOK, ""
+}
+
+func getUserByID(userID int64) (User, error) {
 	mUserCache.Lock()
 	if u := userCache[userID]; u != nil {
 		u := *u
 		mUserCache.Unlock()
-		return u, http.StatusOK, ""
+		return u, nil
 	}
 	mUserCache.Unlock()
 
+	var user User
 	err := dbx.Get(&user, "SELECT * FROM `users` WHERE `id` = ?", userID)
 	if err == sql.ErrNoRows {
-		return user, http.StatusNotFound, "user not found"
+		return user, errors.New("user not found")
 	}
-	return user, http.StatusOK, ""
+	return user, nil
 }
 
 func getUserSimple(r *http.Request) (user UserSimple, errCode int, errMsg string) {
