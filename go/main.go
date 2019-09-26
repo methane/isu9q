@@ -2190,7 +2190,7 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 	}
 
 	seller := user
-	now := time.Now()
+	now := time.Now().Truncate(time.Second)
 	// last_bump + 3s > now
 	if seller.LastBump.Add(BumpChargeSeconds).After(now) {
 		outputErrorMsg(w, http.StatusForbidden, "Bump not allowed")
