@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -53,17 +54,16 @@ type APIShipmentStatusReq struct {
 
 const retryLimit = 20
 
-func APIPaymentToken(paymentURL string, param *APIPaymentServiceTokenReq) (*APIPaymentServiceTokenRes, error) {
+func APIPaymentToken(ctx context.Context, paymentURL string, param *APIPaymentServiceTokenReq) (*APIPaymentServiceTokenRes, error) {
 	b, _ := json.Marshal(param)
-	return APIPaymentTokenTry(paymentURL, b, 0)
+	return APIPaymentTokenTry(ctx, paymentURL, b, 0)
 }
 
-func APIPaymentTokenTry(paymentURL string, b []byte, count int) (*APIPaymentServiceTokenRes, error) {
-	req, err := http.NewRequest(http.MethodPost, paymentURL+"/token", bytes.NewBuffer(b))
+func APIPaymentTokenTry(ctx context.Context, paymentURL string, b []byte, count int) (*APIPaymentServiceTokenRes, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, paymentURL+"/token", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
 	}
-
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Content-Type", "application/json")
 	//log.Printf("api: %v", req.URL)
@@ -80,7 +80,7 @@ func APIPaymentTokenTry(paymentURL string, b []byte, count int) (*APIPaymentServ
 		}
 		if count < retryLimit {
 			log.Printf("retry: %v", string(rb))
-			return APIPaymentTokenTry(paymentURL, b, count+1)
+			return APIPaymentTokenTry(ctx, paymentURL, b, count+1)
 		}
 		return nil, fmt.Errorf("status code: %d; body: %s", res.StatusCode, rb)
 	}
@@ -94,12 +94,12 @@ func APIPaymentTokenTry(paymentURL string, b []byte, count int) (*APIPaymentServ
 	return pstr, nil
 }
 
-func APIShipmentCreate(shipmentURL string, param *APIShipmentCreateReq) (*APIShipmentCreateRes, error) {
+func APIShipmentCreate(ctx context.Context, shipmentURL string, param *APIShipmentCreateReq) (*APIShipmentCreateRes, error) {
 	b, _ := json.Marshal(param)
-	return APIShipmentCreateTry(shipmentURL, b, 0)
+	return APIShipmentCreateTry(ctx, shipmentURL, b, 0)
 }
-func APIShipmentCreateTry(shipmentURL string, b []byte, count int) (*APIShipmentCreateRes, error) {
-	req, err := http.NewRequest(http.MethodPost, shipmentURL+"/create", bytes.NewBuffer(b))
+func APIShipmentCreateTry(ctx context.Context, shipmentURL string, b []byte, count int) (*APIShipmentCreateRes, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, shipmentURL+"/create", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func APIShipmentCreateTry(shipmentURL string, b []byte, count int) (*APIShipment
 		}
 		if count < retryLimit {
 			log.Printf("retry: %v", string(rb))
-			return APIShipmentCreateTry(shipmentURL, b, count+1)
+			return APIShipmentCreateTry(ctx, shipmentURL, b, count+1)
 		}
 		return nil, fmt.Errorf("status code: %d; body: %s", res.StatusCode, rb)
 	}
@@ -136,13 +136,13 @@ func APIShipmentCreateTry(shipmentURL string, b []byte, count int) (*APIShipment
 	return scr, nil
 }
 
-func APIShipmentRequest(shipmentURL string, param *APIShipmentRequestReq) ([]byte, error) {
+func APIShipmentRequest(ctx context.Context, shipmentURL string, param *APIShipmentRequestReq) ([]byte, error) {
 	b, _ := json.Marshal(param)
-	return APIShipmentRequestTry(shipmentURL, b, 0)
+	return APIShipmentRequestTry(ctx, shipmentURL, b, 0)
 }
 
-func APIShipmentRequestTry(shipmentURL string, b []byte, count int) ([]byte, error) {
-	req, err := http.NewRequest(http.MethodPost, shipmentURL+"/request", bytes.NewBuffer(b))
+func APIShipmentRequestTry(ctx context.Context, shipmentURL string, b []byte, count int) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, shipmentURL+"/request", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +165,7 @@ func APIShipmentRequestTry(shipmentURL string, b []byte, count int) ([]byte, err
 		}
 		if count < retryLimit {
 			log.Printf("retry: %v", string(rb))
-			return APIShipmentRequestTry(shipmentURL, b, count+1)
+			return APIShipmentRequestTry(ctx, shipmentURL, b, count+1)
 		}
 		return nil, fmt.Errorf("status code: %d; body: %s", res.StatusCode, rb)
 	}
@@ -173,13 +173,13 @@ func APIShipmentRequestTry(shipmentURL string, b []byte, count int) ([]byte, err
 	return ioutil.ReadAll(res.Body)
 }
 
-func APIShipmentStatus(shipmentURL string, param *APIShipmentStatusReq) (*APIShipmentStatusRes, error) {
+func APIShipmentStatus(ctx context.Context, shipmentURL string, param *APIShipmentStatusReq) (*APIShipmentStatusRes, error) {
 	b, _ := json.Marshal(param)
-	return APIShipmentStatusTry(shipmentURL, b, 0)
+	return APIShipmentStatusTry(ctx, shipmentURL, b, 0)
 }
 
-func APIShipmentStatusTry(shipmentURL string, b []byte, count int) (*APIShipmentStatusRes, error) {
-	req, err := http.NewRequest(http.MethodGet, shipmentURL+"/status", bytes.NewBuffer(b))
+func APIShipmentStatusTry(ctx context.Context, shipmentURL string, b []byte, count int) (*APIShipmentStatusRes, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, shipmentURL+"/status", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +202,7 @@ func APIShipmentStatusTry(shipmentURL string, b []byte, count int) (*APIShipment
 		}
 		if count < retryLimit {
 			log.Printf("retry: %v", string(rb))
-			return APIShipmentStatusTry(shipmentURL, b, count+1)
+			return APIShipmentStatusTry(ctx, shipmentURL, b, count+1)
 		}
 		return nil, fmt.Errorf("status code: %d; body: %s", res.StatusCode, rb)
 	}
