@@ -638,7 +638,7 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 
 	res := resInitialize{
 		// キャンペーン実施時には還元率の設定を返す。詳しくはマニュアルを参照のこと。
-		Campaign: 2,
+		Campaign: 1,
 		// 実装言語を返す
 		Language: "Go",
 	}
@@ -1108,8 +1108,32 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	trEvidsMap := make(map[int64]TransactionEvidence)
+	trIds := make([]int64, 0, len(trEvids))
 	for _, t := range trEvids {
 		trEvidsMap[t.ItemID] = t
+		trIds = append(trIds, t.ID)
+	}
+
+	shippingsMap := make(map[int64]Shipping)
+	if len(trIds) > 0 {
+		var shippings []Shipping
+		inq, inarg, err = sqlx.In("SELECT * FROM `shippings` WHERE `transaction_evidence_id` IN (?)", trIds)
+		if err != nil {
+			log.Printf("%+v", err)
+			outputErrorMsg(w, http.StatusInternalServerError, "db error")
+			tx.Rollback()
+			return
+		}
+		err = dbx.Select(&shippings, inq, inarg...)
+		if err != nil {
+			log.Printf("%+v", err)
+			outputErrorMsg(w, http.StatusInternalServerError, "db error")
+			tx.Rollback()
+			return
+		}
+		for _, s := range shippings {
+			shippingsMap[s.TransactionEvidenceID] = s
+		}
 	}
 
 	itemDetails := []ItemDetail{}
@@ -1164,16 +1188,10 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		transactionEvidence, _ := trEvidsMap[item.ID]
 
 		if transactionEvidence.ID > 0 {
-			shipping := Shipping{}
-			err = tx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
-			if err == sql.ErrNoRows {
+			shipping, ok := shippingsMap[transactionEvidence.ID]
+			if !ok {
+				log.Printf("shipping not found: trID=%v", transactionEvidence.ID)
 				outputErrorMsg(w, http.StatusNotFound, "shipping not found")
-				tx.Rollback()
-				return
-			}
-			if err != nil {
-				log.Print(err)
-				outputErrorMsg(w, http.StatusInternalServerError, "db error")
 				tx.Rollback()
 				return
 			}
