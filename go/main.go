@@ -68,11 +68,14 @@ var (
 
 	configCache = make(map[string]string)
 
+	mUser sync.RWMutex
 	userByID   = map[int64]*User{}
 	userByName = map[string]*User{}
 )
 
-func userOnMem(u User) {
+func userOnMem(u User){
+	mUser.Lock()
+	defer mUser.Unlock()
 	userByID[u.ID] = &u
 	userByName[u.AccountName] = &u
 }
@@ -450,13 +453,17 @@ func getCSRFToken(r *http.Request) string {
 
 func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 	session := getSession(r)
+	mUser.RLock()
 	userID, ok := session.Values["user_id"]
 	if !ok {
+		mUser.RUnlock()
 		return user, http.StatusNotFound, "no session"
 	}
 	if u, ok := userByID[userID.(int64)]; ok {
+		mUser.RUnlock()
 		return *u, http.StatusOK, ""
 	}
+	mUser.RUnlock()
 
 	err := dbx.Get(&user, "SELECT * FROM `users` WHERE `id` = ?", userID)
 	if err == sql.ErrNoRows {
@@ -484,6 +491,8 @@ func getUserID(r *http.Request) (userID int64, errCode int, errMsg string) {
 
 func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err error) {
 	user := User{}
+	mUser.RLock()
+	defer 	mUser.RUnlock()
 	if u, ok := userByID[userID]; ok {
 		user = *u
 	} else {
@@ -507,6 +516,7 @@ func getUserSimpleByIDs(q sqlx.Queryer, userIDs []int64) (userSimples map[int64]
 		uniqIds[id] = id
 	}
 	breaked := false
+	mUser.RLock()
 	for id := range uniqIds {
 		if u, ok := userByID[id]; ok {
 			userSimples[id] = UserSimple{
@@ -517,6 +527,7 @@ func getUserSimpleByIDs(q sqlx.Queryer, userIDs []int64) (userSimples map[int64]
 			break
 		}
 	}
+	mUser.RUnlock()
 	if !breaked {
 		return userSimples, nil
 	}
@@ -627,7 +638,7 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 
 	res := resInitialize{
 		// キャンペーン実施時には還元率の設定を返す。詳しくはマニュアルを参照のこと。
-		Campaign: 1,
+		Campaign: 2,
 		// 実装言語を返す
 		Language: "Go",
 	}
@@ -1532,9 +1543,12 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	seller := User{}
+	mUser.RLock()
 	if u, ok := userByID[targetItem.SellerID]; ok {
+		mUser.RUnlock()
 		seller = *u
 	} else {
+		mUser.RUnlock()
 		err = tx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ?", targetItem.SellerID)
 		if err == sql.ErrNoRows {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
@@ -2195,9 +2209,12 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 	tx := dbx.MustBegin()
 
 	seller := User{}
+	mUser.RLock()
 	if u, ok := userByID[user.ID]; ok {
+		mUser.RUnlock()
 		seller = *u
 	} else {
+		mUser.RUnlock()
 		err = tx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ? FOR UPDATE", user.ID)
 		if err == sql.ErrNoRows {
 			outputErrorMsg(w, http.StatusNotFound, "user not found")
@@ -2250,8 +2267,10 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tx.Commit()
+	mUser.Lock()
 	userByID[seller.ID].LastBump = now
 	userByID[seller.ID].NumSellItems++
+	mUser.Unlock()
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(resSell{ID: itemID})
@@ -2310,9 +2329,12 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 	}
 
 	seller := User{}
+	mUser.RLock()
 	if u, ok := userByID[user.ID]; ok {
+		mUser.RUnlock()
 		seller = *u
 	} else {
+		mUser.RUnlock()
 		err = tx.Get(&seller, "SELECT * FROM `users` WHERE `id` = ?", user.ID)
 		if err == sql.ErrNoRows {
 			outputErrorMsg(w, http.StatusNotFound, "user not found")
@@ -2356,7 +2378,9 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusInternalServerError, "db error")
 		return
 	}
+	mUser.Lock()
 	userByID[seller.ID].LastBump = now
+	mUser.Unlock()
 
 	err = tx.Get(&targetItem, "SELECT * FROM `items` WHERE `id` = ?", itemID)
 	if err != nil {
@@ -2418,9 +2442,12 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	u := User{}
+	mUser.RLock()
 	if up, ok := userByName[accountName]; ok {
+		mUser.RUnlock()
 		u = *up
 	} else {
+		mUser.RUnlock()
 		err = dbx.Get(&u, "SELECT * FROM `users` WHERE `account_name` = ?", accountName)
 		if err == sql.ErrNoRows {
 			outputErrorMsg(w, http.StatusUnauthorized, "アカウント名かパスワードが間違えています")
