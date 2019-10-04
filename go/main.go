@@ -1079,15 +1079,37 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var userIds = make([]int64, 0, len(items)*2)
+	var itemIds = make([]int64, 0, len(items))
 	for _, item := range items {
 		userIds = append(userIds, item.SellerID)
 		userIds = append(userIds, item.BuyerID)
+		itemIds = append(itemIds, item.ID)
 	}
 	userSimples, err := getUserSimpleByIDs(dbx, userIds)
 	if err != nil {
 		log.Printf("err: %v", err)
 		outputErrorMsg(w, http.StatusNotFound, "seller not found")
 		return
+	}
+
+	var trEvids []TransactionEvidence
+	inq, inarg, err := sqlx.In("SELECT * FROM `transaction_evidences` WHERE `item_id` IN (?)", itemIds)
+	if err != nil {
+		log.Printf("%+v", err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		tx.Rollback()
+		return
+	}
+	err = dbx.Select(&trEvids, inq, inarg...)
+	if err != nil {
+		log.Printf("%+v", err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		tx.Rollback()
+		return
+	}
+	trEvidsMap := make(map[int64]TransactionEvidence)
+	for _, t := range trEvids {
+		trEvidsMap[t.ItemID] = t
 	}
 
 	itemDetails := []ItemDetail{}
@@ -1139,15 +1161,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			itemDetail.Buyer = &buyer
 		}
 
-		transactionEvidence := TransactionEvidence{}
-		err = tx.Get(&transactionEvidence, "SELECT * FROM `transaction_evidences` WHERE `item_id` = ?", item.ID)
-		if err != nil && err != sql.ErrNoRows {
-			// It's able to ignore ErrNoRows
-			log.Print(err)
-			outputErrorMsg(w, http.StatusInternalServerError, "db error")
-			tx.Rollback()
-			return
-		}
+		transactionEvidence, _ := trEvidsMap[item.ID]
 
 		if transactionEvidence.ID > 0 {
 			shipping := Shipping{}
