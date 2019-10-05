@@ -93,6 +93,7 @@ type User struct {
 	NumSellItems   int       `json:"num_sell_items" db:"num_sell_items"`
 	LastBump       time.Time `json:"-" db:"last_bump"`
 	CreatedAt      time.Time `json:"-" db:"created_at"`
+	rawpass        string
 }
 
 type UserSimple struct {
@@ -638,7 +639,7 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 
 	res := resInitialize{
 		// キャンペーン実施時には還元率の設定を返す。詳しくはマニュアルを参照のこと。
-		Campaign: 1,
+		Campaign: 4,
 		// 実装言語を返す
 		Language: "Go",
 	}
@@ -2494,16 +2495,27 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 		userOnMem(u)
 	}
 
-	err = bcrypt.CompareHashAndPassword(u.HashedPassword, []byte(password))
-	if err == bcrypt.ErrMismatchedHashAndPassword {
-		outputErrorMsg(w, http.StatusUnauthorized, "アカウント名かパスワードが間違えています")
-		return
-	}
-	if err != nil {
-		log.Print(err)
+	if u.rawpass != "" {
+		log.Printf("secondtime: %v: %v", accountName, password)
+		if u.rawpass != password {
+			outputErrorMsg(w, http.StatusUnauthorized, "アカウント名かパスワードが間違えています")
+			return
+		}
+	} else {
+		err = bcrypt.CompareHashAndPassword(u.HashedPassword, []byte(password))
+		if err == bcrypt.ErrMismatchedHashAndPassword {
+			outputErrorMsg(w, http.StatusUnauthorized, "アカウント名かパスワードが間違えています")
+			return
+		}
+		if err != nil {
+			log.Print(err)
 
-		outputErrorMsg(w, http.StatusInternalServerError, "crypt error")
-		return
+			outputErrorMsg(w, http.StatusInternalServerError, "crypt error")
+			return
+		}
+		mUser.Lock()
+		userByName[accountName].rawpass = password
+		mUser.Unlock()
 	}
 
 	session := getSession(r)
